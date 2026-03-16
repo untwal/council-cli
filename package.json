@@ -1,0 +1,33 @@
+{
+  "name": "council",
+  "version": "0.4.0",
+  "description": "AI Company in a CLI — run feature requests through PM, Architect, Developer, EM, QA, and CEO agents",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "council": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postbuild": "chmod +x dist/index.js",
+    "prepublishOnly": "npm run build",
+    "size": "echo 'dist:' && du -sh dist/ && echo 'node_modules:' && du -sh node_modules/ 2>/dev/null || echo '(none)'"
+  },
+  "files": [
+    "dist/**/*.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.2.4"
+  }
+}
