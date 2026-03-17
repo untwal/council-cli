@@ -1,9 +1,11 @@
 import * as http from "http";
 import * as crypto from "crypto";
+import * as fs from "fs";
+import * as path from "path";
 import { parseCommand, extractContext } from "./commands";
 import { executeCommand } from "./runner";
 import { findRepoRoot } from "../worktree";
-import { killAll, cleanupWorktrees } from "../process";
+import { killAll, cleanupWorktrees, isShuttingDown } from "../process";
 
 export interface BotServerConfig {
   port: number;
@@ -29,7 +31,35 @@ function verifySignature(secret: string, body: string, signature: string | undef
 }
 
 export function startServer(config: BotServerConfig): http.Server {
+  let version: string | undefined;
+  try {
+    const pkgPath = path.resolve(__dirname, "../../package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    version = pkg.version;
+  } catch { /* omit version field at runtime */ }
+
   const server = http.createServer((req, res) => {
+    if (req.url === "/health") {
+      if (req.method !== "GET") {
+        res.writeHead(405, { "Allow": "GET" });
+        res.end("Method Not Allowed");
+        return;
+      }
+      const shutting = isShuttingDown();
+      const body = JSON.stringify({
+        status: shutting ? "shutting_down" : "ok",
+        uptime: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+        ...(version ? { version } : {}),
+      }, null, 2);
+      res.writeHead(shutting ? 503 : 200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+      });
+      res.end(body);
+      return;
+    }
+
     if (req.method !== "POST" || req.url !== "/webhook") {
       res.writeHead(404);
       res.end("Not found");

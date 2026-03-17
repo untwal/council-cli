@@ -162,3 +162,7 @@ export function installSignalHandlers(): void {
 export function getStatus(): { processes: number; worktrees: number } {
   return { processes: agentProcesses.size, worktrees: activeWorktrees.size };
 }
+
+export function isShuttingDown(): boolean {
+  return cleaningUp;
+}
