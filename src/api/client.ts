@@ -220,9 +220,12 @@ export async function geminiChat(
     contents,
     tools: [{ functionDeclarations }],
   };
-  const apiPath = `/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // Pass API key in header, not URL (prevents key leaking in logs/traces)
+  const apiPath = `/v1beta/models/${model}:generateContent`;
 
-  const raw = await post("generativelanguage.googleapis.com", apiPath, JSON.stringify(body), {});
+  const raw = await post("generativelanguage.googleapis.com", apiPath, JSON.stringify(body), {
+    "x-goog-api-key": apiKey,
+  });
 
   const parsed = JSON.parse(raw);
   if (parsed.error) throw new Error(`Gemini: ${parsed.error.message}`);

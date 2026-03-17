@@ -17,6 +17,10 @@ export function createRunId(): string {
 }
 
 export function artifactDir(repoPath: string, runId: string): string {
+  // Validate runId to prevent path traversal
+  if (/[/\\]|\.\./.test(runId)) {
+    throw new Error(`Invalid run ID: "${runId}" — must not contain path separators or ".."`);
+  }
   return path.join(repoPath, ".council-artifacts", runId);
 }
 

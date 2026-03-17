@@ -108,9 +108,14 @@ export function executeTool(
 
       case "search_files": {
         const pattern = args.pattern;
-        // Reject patterns with nested quantifiers (ReDoS risk)
-        if (/([+*?}])([+*?{])/.test(pattern)) {
-          return `Rejected unsafe regex pattern (nested quantifiers): ${pattern}`;
+        // Reject patterns that could cause catastrophic backtracking (ReDoS)
+        const dangerous = [
+          /\([^)]*[+*][^)]*\)[+*]/,  // (a+)+ or (a*)*
+          /\([^)]*\|[^)]*\)[+*]/,    // (a|b)+ alternation with quantifier
+          /([+*])\1/,                 // ++ or **
+        ];
+        if (dangerous.some((d) => d.test(pattern))) {
+          return `Rejected unsafe regex pattern (potential ReDoS): ${pattern}`;
         }
         let regex: RegExp;
         try {
