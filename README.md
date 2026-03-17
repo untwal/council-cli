@@ -12,7 +12,7 @@ PM → Architect → Developer → EM → QA → CEO
 
 Also includes: GitHub bot, multi-repo workspaces, agent comparison, templates, standup reports, analytics, background execution, and HTML export.
 
-**Zero runtime dependencies. 424 KB dist. 200ms startup. 253 tests.**
+**Zero runtime dependencies. 424 KB dist. 200ms startup. 267 tests.**
 
 ---
 
@@ -143,7 +143,7 @@ council analytics
 
 | Flag | Commands | Description |
 |------|----------|-------------|
-| `--agents=cli:model,cli:model` | company, compare, chat, bg | Select agents directly |
+| `--agents=cli:model,cli:model` | company, compare, chat, bg | Select agents (supports `=` and space syntax) |
 | `--roles=pm,architect,developer` | company, bg | Select which pipeline roles to run |
 | `--dry-run` | company | Show plan and estimate without executing |
 | `--resume=<run-id\|latest>` | company | Resume an interrupted pipeline |
@@ -156,8 +156,12 @@ council analytics
 Append `:reasoning` to enable extended thinking (Claude Opus):
 
 ```bash
+# Both syntax forms work:
 council --agents=claude:claude-opus-4-6:reasoning,claude:claude-sonnet-4-6 "Complex refactor"
+council --agents "claude:claude-opus-4-6:reasoning,claude:claude-sonnet-4-6" "Complex refactor"
 ```
+
+When `--agents` is specified, ALL listed models are used. The flag always overrides `.council.yml` config and auto-discovery.
 
 ---
 
@@ -205,6 +209,31 @@ Checkpointed after each role. Resume interrupted runs:
 
 ```bash
 council company --resume=latest
+```
+
+### Dry Run
+
+Preview the pipeline plan with per-role agent assignments before executing:
+
+```bash
+council company --agents "claude:claude-opus-4-6,codex:gpt-5.4" --dry-run "Add dark mode"
+```
+
+```
+  Dry Run Preview:
+
+  ~2m  Product Manager
+       agent: claude-opus-4-6  →  spec
+  ~3m  Systems Architect
+       agent: claude-opus-4-6  →  design
+  ~5m  Senior Developer  compare
+       agent: claude-opus-4-6, gpt-5.4  →  code
+  ~2m  Engineering Manager
+       agent: claude-opus-4-6  →  em_report
+  ~4m  QA Engineer
+       agent: claude-opus-4-6  →  qa_report
+  ~1m  CEO
+       agent: claude-opus-4-6  →  decision
 ```
 
 ### Background Execution
@@ -538,7 +567,7 @@ council-cli/
 │   ├── orchestrator/             CTO planner + types
 │   ├── api/                      HTTP clients + agentic tool loop
 │   └── ui/                       Terminal rendering (6 modules)
-├── src/__tests__/                253 tests across 26 files
+├── src/__tests__/                267 tests across 27 files
 ├── .gitignore
 ├── vitest.config.ts
 ├── tsconfig.json
@@ -595,7 +624,7 @@ Yes. All git operations use `spawnSync` arrays (no shell injection), credentials
 
 ```bash
 npm run build       # Compile TypeScript (excludes tests)
-npm test            # Run all 253 tests
+npm test            # Run all 267 tests
 npm run test:watch  # Watch mode
 npm run dev         # Run from source
 npm start           # Run compiled
