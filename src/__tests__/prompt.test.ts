@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickDiverseDefaults } from "../ui/prompt";
+import { pickDiverseDefaults, pickCompareAgents } from "../ui/prompt";
 import { ModelDef } from "../models";
 
 function model(overrides: Partial<ModelDef> & { cli: string; model: string }): ModelDef {
@@ -109,7 +109,6 @@ describe("pickDiverseDefaults", () => {
   });
 
   it("prefers CLI runner when same provider has CLI and API", () => {
-    // When sorted, CLI runners come first, so the first claude entry wins
     const available: ModelDef[] = [
       model({ cli: "claude", model: "claude-sonnet-4-6" }),
       model({ cli: "anthropic", model: "claude-sonnet-4-6" }),
@@ -118,7 +117,95 @@ describe("pickDiverseDefaults", () => {
     ];
 
     const result = pickDiverseDefaults(available);
-    // Should include all 4 since they have different cli runners
     expect(result).toHaveLength(4);
+  });
+});
+
+describe("pickCompareAgents", () => {
+  it("uses ALL agents when user-specified", () => {
+    const available: ModelDef[] = [
+      model({ cli: "claude", model: "claude-sonnet-4-6" }),
+      model({ cli: "claude", model: "claude-opus-4-6" }),
+      model({ cli: "claude", model: "claude-3-5-sonnet" }),
+      model({ cli: "codex", model: "o3-mini" }),
+      model({ cli: "codex", model: "gpt-4o" }),
+    ];
+
+    const result = pickCompareAgents(available, true);
+    // Should use ALL 5, not just 2
+    expect(result).toHaveLength(5);
+  });
+
+  it("falls back to diverse defaults when not user-specified", () => {
+    const available: ModelDef[] = [
+      model({ cli: "claude", model: "claude-sonnet-4-6" }),
+      model({ cli: "claude", model: "claude-opus-4-6" }),
+      model({ cli: "codex", model: "o3-mini" }),
+      model({ cli: "codex", model: "gpt-4o" }),
+    ];
+
+    const result = pickCompareAgents(available, false);
+    // Should pick one per provider = 2
+    expect(result).toHaveLength(2);
+    const clis = result.map((r) => r.cli);
+    expect(clis).toContain("claude");
+    expect(clis).toContain("codex");
+  });
+
+  it("uses all agents even if same provider when user-specified", () => {
+    const available: ModelDef[] = [
+      model({ cli: "claude", model: "claude-sonnet-4-6" }),
+      model({ cli: "claude", model: "claude-opus-4-6" }),
+    ];
+
+    const result = pickCompareAgents(available, true);
+    expect(result).toHaveLength(2);
+    expect(result[0].model).toBe("claude-sonnet-4-6");
+    expect(result[1].model).toBe("claude-opus-4-6");
+  });
+
+  it("returns single agent if only one available even when user-specified", () => {
+    const available: ModelDef[] = [
+      model({ cli: "claude", model: "claude-sonnet-4-6" }),
+    ];
+
+    const result = pickCompareAgents(available, true);
+    expect(result).toHaveLength(1);
+  });
+
+  it("handles empty available list", () => {
+    const result = pickCompareAgents([], true);
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe("user --agents flag overrides config", () => {
+  it("user-specified agents override diverse defaults — all models kept", () => {
+    // Simulate: --agents=codex:gpt-5.4,codex:gpt-5.2,codex:gpt-5.1-codex-mini
+    const userAgents: ModelDef[] = [
+      model({ cli: "codex", model: "gpt-5.4" }),
+      model({ cli: "codex", model: "gpt-5.2" }),
+      model({ cli: "codex", model: "gpt-5.1-codex-mini" }),
+    ];
+
+    // With userSpecified=true, ALL 3 should be returned even though same provider
+    const result = pickCompareAgents(userAgents, true);
+    expect(result).toHaveLength(3);
+    expect(result.map((r) => r.model)).toEqual(["gpt-5.4", "gpt-5.2", "gpt-5.1-codex-mini"]);
+  });
+
+  it("auto-discovery deduplicates same provider — only 1 per cli", () => {
+    const autoAgents: ModelDef[] = [
+      model({ cli: "codex", model: "gpt-5.4" }),
+      model({ cli: "codex", model: "gpt-5.2" }),
+      model({ cli: "claude", model: "claude-sonnet-4-6" }),
+    ];
+
+    // With userSpecified=false, should pick 1 per provider = 2
+    const result = pickCompareAgents(autoAgents, false);
+    expect(result).toHaveLength(2);
+    const clis = result.map((r) => r.cli);
+    expect(clis).toContain("codex");
+    expect(clis).toContain("claude");
   });
 });
