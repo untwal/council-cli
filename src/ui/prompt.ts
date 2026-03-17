@@ -46,9 +46,14 @@ export async function selectAgents(available: ModelDef[]): Promise<ModelDef[]> {
   });
 
   console.log();
-  const input = await prompt(`Select agents ${DIM}(space-separated numbers, Enter for diverse defaults)${RST}: `);
+  console.log(`  ${DIM}Pick 2+ agents to compare. Example: 1 3 or 1,2,5${RST}`);
+  const input = await prompt(`Select agents ${DIM}(numbers, or Enter for auto-pick)${RST}: `);
 
-  if (!input) return pickDiverseDefaults(available);
+  if (!input) {
+    const defaults = pickDiverseDefaults(available);
+    console.log(`  ${DIM}Auto-selected: ${defaults.map((d) => d.label).join(", ")}${RST}`);
+    return defaults;
+  }
 
   const selected = input
     .split(/[\s,]+/)
@@ -67,13 +72,12 @@ export async function selectAgents(available: ModelDef[]): Promise<ModelDef[]> {
 /**
  * Pick diverse defaults — one model per unique provider/CLI runner.
  * Prefers non-reasoning variants to keep costs down for auto-selection.
- * Falls back to first 2 if only one provider is available.
+ * Falls back to first 2 distinct models if only one provider is available.
  */
 export function pickDiverseDefaults(available: ModelDef[]): ModelDef[] {
-  // Group by provider (cli runner), skip reasoning variants for defaults
   const providerMap = new Map<string, ModelDef>();
   for (const m of available) {
-    if (m.reasoning) continue;  // skip reasoning for auto-defaults
+    if (m.reasoning) continue;
     if (!providerMap.has(m.cli)) {
       providerMap.set(m.cli, m);
     }
@@ -86,8 +90,20 @@ export function pickDiverseDefaults(available: ModelDef[]): ModelDef[] {
   const nonReasoning = available.filter((m) => !m.reasoning);
   if (nonReasoning.length >= 2) return [nonReasoning[0], nonReasoning[1]];
 
-  // Absolute fallback
   return available.slice(0, 2);
+}
+
+/**
+ * Pick agents for compare mode — use ALL provided agents when user specifies them,
+ * only fall back to pickDiverseDefaults when auto-discovering.
+ */
+export function pickCompareAgents(available: ModelDef[], userSpecified: boolean): ModelDef[] {
+  // If user explicitly specified agents via --agents, use ALL of them
+  if (userSpecified && available.length >= 2) {
+    return available;
+  }
+  // Auto-discovery: pick diverse set
+  return pickDiverseDefaults(available);
 }
 
 export async function inputMultiline(label: string, placeholder?: string): Promise<string> {

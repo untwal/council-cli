@@ -10,7 +10,7 @@ import { getRunner, hasStreamingSupport, AgentRunnerOpts } from "./agents";
 import { streamClaude, streamCodex, streamGemini, StreamCallback, StreamOpts } from "./streaming";
 import { LiveDashboard } from "./ui/dashboard";
 import { StreamView } from "./ui/stream-view";
-import { pickDiverseDefaults } from "./ui/prompt";
+import { pickDiverseDefaults, pickCompareAgents } from "./ui/prompt";
 import { prompt, confirm } from "./ui/prompt";
 import {
   printDiffs, printInfo, printSuccess, printWarning, printError,
@@ -31,6 +31,7 @@ export interface PipelineOpts {
   agentTimeoutMs?: number;  // per-agent timeout, default 15 minutes
   resumeArtifacts?: Artifact[];  // artifacts from a previous interrupted run
   autoSelect?: boolean;  // auto-pick first valid diff in compare mode (for bot/CI)
+  userSpecifiedAgents?: boolean;  // true when --agents flag was used (use ALL, don't filter)
   onRoleComplete?: (role: string, artifact: Artifact) => void;  // callback after each role
 }
 
@@ -84,14 +85,16 @@ export async function runPipeline(opts: PipelineOpts): Promise<PipelineResult> {
     }
 
     printCompanyPhase(roles, i);
-    console.log(`  ${FG.brightCyan}${ICON.gear}${RST} ${BOLD}${role.title}${RST} is working...`);
+    const roleAgentHint = role.mode === "compare" ? ` ${DIM}(${role.mode} mode — multiple agents racing)${RST}` : "";
+    console.log(`  ${FG.brightCyan}${ICON.gear}${RST} ${BOLD}${role.title}${RST} is working...${roleAgentHint}`);
+    console.log(`  ${DIM}Reading codebase, generating ${role.artifactType}...${RST}`);
     console.log();
 
     const artifactBlock = formatArtifactsForPrompt(artifacts, role.inputArtifacts);
     const taskPrompt = buildRolePrompt(role, featureRequest, artifactBlock);
 
     // Resolve agent(s) for this role
-    const roleAgents = resolveRoleAgents(role, availableAgents);
+    const roleAgents = resolveRoleAgents(role, availableAgents, opts.userSpecifiedAgents);
 
     const roleStart = Date.now();
     let artifact: Artifact;
@@ -163,7 +166,7 @@ export async function runPipeline(opts: PipelineOpts): Promise<PipelineResult> {
                 : "";
               const retryPrompt = buildRolePrompt(retryRole, featureRequest, retryArtifactBlock) + feedback;
 
-              const retryAgents = resolveRoleAgents(retryRole, availableAgents);
+              const retryAgents = resolveRoleAgents(retryRole, availableAgents, opts.userSpecifiedAgents);
               let retryArtifact: Artifact;
 
               const retryStart = Date.now();
@@ -485,11 +488,22 @@ function extractJson(text: string): string {
 
 // ── Agent resolution ─────────────────────────────────────────────────────────
 
-function resolveRoleAgents(role: Role, available: ModelDef[]): ModelDef[] {
-  // If role has an explicit agent spec, use it
+function resolveRoleAgents(role: Role, available: ModelDef[], userSpecified = false): ModelDef[] {
+  if (available.length === 0) {
+    throw new Error(`No agents available for role "${role.name}". Set API keys or install agent CLIs.`);
+  }
+
+  // --agents flag (user CLI input) ALWAYS wins over config
+  if (userSpecified) {
+    if (role.mode === "compare") {
+      return available.length >= 2 ? available : [available[0]];
+    }
+    return [available[0]];
+  }
+
+  // Role has an explicit agent spec from .council.yml config — use it as default
   if (role.agentSpec) {
     const specs = role.agentSpec.split(",").map((s) => parseAgentSpec(s.trim()));
-    // Validate: warn if agent CLI isn't known, but still use it (user may have custom CLIs)
     for (const spec of specs) {
       const known = ["claude", "codex", "gemini-cli", "iloom", "anthropic", "openai", "gemini"];
       if (!known.includes(spec.cli)) {
@@ -499,14 +513,12 @@ function resolveRoleAgents(role: Role, available: ModelDef[]): ModelDef[] {
     return specs;
   }
 
-  // For compare mode, pick diverse agents
+  // Auto-discovery: pick diverse set for compare, best single for others
   if (role.mode === "compare") {
-    const diverse = pickDiverseDefaults(available);
-    return diverse.length >= 2 ? diverse : available.slice(0, 2);
+    return pickCompareAgents(available, false);
   }
 
-  // For single mode, pick the best available
-  // Prefer CLI runners, prefer reasoning for architect/ceo
+  // Prefer reasoning/opus for architect/ceo
   if (role.name === "architect" || role.name === "ceo") {
     const reasoning = available.find((a) => a.reasoning);
     if (reasoning) return [reasoning];
@@ -514,8 +526,5 @@ function resolveRoleAgents(role: Role, available: ModelDef[]): ModelDef[] {
     if (opus) return [opus];
   }
 
-  if (available.length === 0) {
-    throw new Error(`No agents available for role "${role.name}". Set API keys or install agent CLIs.`);
-  }
   return [available[0]];
 }

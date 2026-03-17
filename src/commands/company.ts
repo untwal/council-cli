@@ -1,5 +1,5 @@
 import { findRepoRoot } from "../worktree";
-import { discoverModels, ModelDef } from "../models";
+import { discoverModels, getDiscoveryWarnings, ModelDef } from "../models";
 import { DEFAULT_ROLES, Role, createCustomRole } from "../roles";
 import {
   createRunId, artifactDir, cleanupArtifacts,
@@ -11,6 +11,7 @@ import { loadConfig } from "../config";
 import { prompt, confirm } from "../ui/prompt";
 import {
   printInfo, printSuccess, printError, printWarning, printComplete,
+  printHint, printNextSteps, printActionableError,
 } from "../ui/render";
 import { RST, BOLD, DIM, FG, ICON, elapsed } from "../ui/theme";
 
@@ -155,6 +156,12 @@ export async function runCompany(
   } else {
     printInfo("Discovering available agents...");
     availableAgents = await discoverModels();
+
+    // Show discovery warnings so user knows what failed
+    for (const w of getDiscoveryWarnings()) {
+      printWarning(w);
+    }
+
     if (availableAgents.length === 0) {
       printError("No agents found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or install CLIs.");
       process.exit(1);
@@ -172,7 +179,15 @@ export async function runCompany(
   console.log();
 
   if (dryRun) {
-    printInfo("Dry run complete — no agents executed.");
+    console.log(`  ${BOLD}Dry Run Preview:${RST}`);
+    const TIME_EST: Record<string, string> = { pm: "~2m", architect: "~3m", developer: "~5m", em: "~2m", qa: "~4m", ceo: "~1m" };
+    for (const role of roles) {
+      const time = TIME_EST[role.name] ?? "~3m";
+      const mode = role.mode === "compare" ? ` ${DIM}(${estimate.compareAgents} agents race)${RST}` : "";
+      console.log(`  ${DIM}${time}${RST}  ${role.title}${mode}  ${DIM}→ produces ${role.artifactType}${RST}`);
+    }
+    console.log();
+    printHint("No agents will be executed. Remove --dry-run to start the pipeline.");
     return;
   }
 
@@ -199,6 +214,7 @@ export async function runCompany(
     availableAgents,
     maxRetries,
     resumeArtifacts,
+    userSpecifiedAgents: !!agentFlag,
   });
 
   // ── Summary ──────────────────────────────────────────────────────────
@@ -219,23 +235,45 @@ export async function runCompany(
 
     const codeArtifact = result.artifacts.find((a) => a.type === "code");
     if (codeArtifact && codeArtifact.content && !codeArtifact.content.startsWith("(No")) {
-      const shouldApply = await confirm(`${BOLD}Apply the code changes to your working tree?${RST}`);
+      // Show what will be applied
+      const addLines = (codeArtifact.content.match(/^\+(?!\+\+)/gm) ?? []).length;
+      const delLines = (codeArtifact.content.match(/^-(?!--)/gm) ?? []).length;
+      const fileCount = new Set(codeArtifact.content.match(/^diff --git/gm) ?? []).size;
+      console.log(`  ${BOLD}Changes ready:${RST} ${fileCount} files, ${FG.brightGreen}+${addLines}${RST} ${FG.brightRed}-${delLines}${RST} lines`);
+
+      const shouldApply = await confirm(`${BOLD}Apply these changes to your working tree?${RST}`);
       if (shouldApply) {
         try {
           const { applyDiff } = await import("../worktree");
           applyDiff(repoPath, codeArtifact.content);
-          printSuccess("Code changes applied");
+          printSuccess("Code changes applied to your working tree");
+          printNextSteps([
+            "Review the changes: git diff",
+            "Run your tests to verify",
+            "Commit when ready: git add -A && git commit",
+          ]);
         } catch (err) {
-          printError(`Failed to apply: ${err}`);
+          printActionableError(
+            `Failed to apply diff: ${err}`,
+            "The diff is saved in artifacts. Apply manually with: git apply .council-artifacts/" + runId + "/03-code.md"
+          );
         }
+      } else {
+        printHint("Changes not applied. You can apply later with: council company --resume=" + runId);
       }
     }
   } else {
     printWarning("Feature not approved after all retries");
-    printInfo(`Resume later with: council company --resume ${runId}`);
+    printNextSteps([
+      `Resume from where you left off: council company --resume=${runId}`,
+      `View the post-mortem: council retro ${runId}`,
+      "Check CEO feedback in the decision artifact",
+    ]);
   }
 
-  console.log(`  ${DIM}Artifacts saved to: ${artifactDir(repoPath, runId)}${RST}`);
+  console.log();
+  console.log(`  ${DIM}Artifacts: ${artifactDir(repoPath, runId)}${RST}`);
+  printHint("Artifacts contain the full spec, design, code, and review. Keep them for reference.");
 
   const doCleanup = await confirm("Clean up artifacts?", false);
   if (doCleanup) {
