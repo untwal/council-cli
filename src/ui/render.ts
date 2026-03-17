@@ -123,9 +123,18 @@ function printSummaryTable(results: DiffResult[]): void {
   if (bestIdx >= 0 && results.length >= 2) {
     const winner = results[bestIdx];
     const color = agentColor(bestIdx);
+    const wAdds = (winner.diff.match(/^\+(?!\+\+)/gm) ?? []).length;
+    const wDels = (winner.diff.match(/^-(?!--)/gm) ?? []).length;
+    const wFiles = new Set(winner.diff.match(/^diff --git .+ b\/(.+)$/gm) ?? []).size;
     console.log();
     console.log(`  ${ICON.trophy} ${bold("Winner:")} ${color}${BOLD}${winner.agentId}${RST}`);
-    console.log(`  ${dim(`Apply with:`)} ${bold(`council apply ${winner.agentId}`)}`);
+    console.log(`  ${dim("Why:")} ${wFiles} files changed, +${wAdds} −${wDels} lines, most complete implementation`);
+    console.log();
+    console.log(`  ${dim("Apply:")}  ${bold(`council apply ${winner.agentId}`)}`);
+    console.log(`  ${dim("Review:")} Inspect the diff above before applying`);
+  } else if (results.length >= 2) {
+    console.log();
+    console.log(`  ${dim("No agent produced changes. Try a different prompt or check agent logs.")}`);
   }
   console.log();
 }
@@ -275,4 +284,22 @@ export function printSuccess(msg: string): void {
 
 export function printWarning(msg: string): void {
   console.log(`  ${FG.brightYellow}${ICON.warning}${RST} ${msg}`);
+}
+
+export function printHint(msg: string): void {
+  console.log(`  ${FG.gray}${ICON.brain}${RST} ${DIM}${msg}${RST}`);
+}
+
+export function printNextSteps(steps: string[]): void {
+  console.log();
+  console.log(`  ${BOLD}Next steps:${RST}`);
+  for (let i = 0; i < steps.length; i++) {
+    console.log(`  ${DIM}${i + 1}.${RST} ${steps[i]}`);
+  }
+  console.log();
+}
+
+export function printActionableError(msg: string, fix: string): void {
+  console.error(`\n  ${FG.brightRed}${ICON.cross} Error:${RST} ${msg}`);
+  console.error(`  ${FG.gray}${ICON.arrowR}${RST} ${fix}\n`);
 }

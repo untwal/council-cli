@@ -111,13 +111,18 @@ export async function runDoctor(): Promise<void> {
 
   console.log();
   console.log(`  ${passCount} passed, ${warnCount} warnings, ${failCount} failed`);
+  console.log();
 
   if (failCount === 0 && warnCount === 0) {
-    printSuccess("All checks passed. Council is ready.");
+    printSuccess("All checks passed. Council is ready to use.");
+    console.log(`  ${DIM}Try: council company --dry-run "Add a feature"${RST}`);
   } else if (failCount === 0) {
-    printInfo("Core checks passed. Warnings are optional.");
+    printInfo("Core checks passed. Warnings are optional features you can enable later.");
+    if (!configExists) {
+      console.log(`  ${DIM}Get started: council init${RST}`);
+    }
   } else {
-    printWarning("Some required checks failed. Fix them before using council.");
+    printWarning("Fix the failed checks above before using council.");
   }
   console.log();
 }
