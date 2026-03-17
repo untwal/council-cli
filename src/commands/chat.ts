@@ -1,6 +1,6 @@
 import * as readline from "readline";
 import { findRepoRoot, createWorktree, getDiff, removeWorktree, applyDiff, Worktree } from "../worktree";
-import { discoverModels, ModelDef } from "../models";
+import { discoverModels, getDiscoveryWarnings, ModelDef } from "../models";
 import { parseAgentSpecs } from "../parse-agent-spec";
 import { getRunner, hasStreamingSupport, AgentResult } from "../agents";
 import { ChatSession } from "../api/session";
@@ -10,7 +10,7 @@ import {
   printAgentResponse, ThinkingIndicator, printChatDiffSummary,
   printChatHelp, printChatWelcome,
 } from "../ui/chat-display";
-import { printError, printInfo, printSuccess, printDiffs } from "../ui/render";
+import { printError, printInfo, printSuccess, printWarning, printDiffs } from "../ui/render";
 import { selectAgents } from "../ui/prompt";
 import { RST, BOLD, DIM, FG, ICON, agentColor } from "../ui/theme";
 import { trackWorktree, setBeforeExit, gracefulShutdown } from "../process";
@@ -48,6 +48,7 @@ export async function runChat(agentFlag: string | null): Promise<void> {
   } else {
     printInfo("Discovering agents...");
     const available = await discoverModels();
+    for (const w of getDiscoveryWarnings()) printWarning(w);
     if (available.length === 0) {
       printError("No agents found. Install claude, codex, or gemini CLI, or set API keys.");
       process.exit(1);

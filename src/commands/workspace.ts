@@ -2,7 +2,7 @@ import { loadWorkspaceConfig, validateWorkspace, WorkspaceRepo } from "../worksp
 import { DEFAULT_ROLES, Role, buildRolePrompt } from "../roles";
 import { Artifact, createRunId, saveArtifact, formatArtifactsForPrompt, savePipelineState, RoleMetrics } from "../artifacts";
 import { runPipeline, PipelineResult } from "../pipeline";
-import { discoverModels, ModelDef } from "../models";
+import { discoverModels, getDiscoveryWarnings, ModelDef } from "../models";
 import { parseAgentSpecs } from "../parse-agent-spec";
 import { loadConfig } from "../config";
 import { prompt, confirm } from "../ui/prompt";
@@ -66,6 +66,7 @@ export async function runWorkspace(taskArg: string | null, agentFlag: string | n
   } else {
     printInfo("Discovering agents...");
     agents = await discoverModels();
+    for (const w of getDiscoveryWarnings()) printWarning(w);
     if (agents.length === 0) {
       printError("No agents found.");
       return;

@@ -1,6 +1,7 @@
 import { findRepoRoot, createWorktree, getDiff, removeWorktree, Worktree } from "../worktree";
 import { getRunner, hasStreamingSupport, AgentResult, AgentRunnerOpts } from "../agents";
-import { discoverModels, ModelDef } from "../models";
+import { discoverModels, getDiscoveryWarnings, ModelDef } from "../models";
+import { printActionableError } from "../ui/render";
 import { parseAgentSpecs } from "../parse-agent-spec";
 import { streamClaude, streamCodex, streamGemini, StreamCallback, StreamOpts } from "../streaming";
 import { StreamView, printEvalResults } from "../ui/stream-view";
@@ -33,8 +34,14 @@ export async function runCompare(taskArg: string | null, agentFlag: string | nul
     printInfo("Discovering available agents...");
     const available = await discoverModels();
     if (available.length < 2) {
-      printError("Not enough agents found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.");
+      printActionableError(
+        "Need at least 2 agents to compare, but only found " + available.length + ".",
+        "Install another agent CLI or specify agents: council compare --agents=claude:sonnet,codex:o3 \"task\""
+      );
       process.exit(1);
+    }
+    for (const w of getDiscoveryWarnings()) {
+      printWarning(w);
     }
     printSuccess(`Found ${available.length} agents`);
     agents = await selectAgents(available);

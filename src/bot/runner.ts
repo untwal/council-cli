@@ -8,7 +8,7 @@ import { RunProgress, formatProgressComment, formatPRBody, formatArtifactComment
 import { DEFAULT_ROLES, Role, createCustomRole } from "../roles";
 import { Artifact, createRunId, loadPipelineState } from "../artifacts";
 import { runPipeline, PipelineResult } from "../pipeline";
-import { discoverModels, ModelDef } from "../models";
+import { discoverModels, getDiscoveryWarnings, ModelDef } from "../models";
 import { parseAgentSpecs } from "../parse-agent-spec";
 import { loadConfig } from "../config";
 import { findRepoRoot } from "../worktree";

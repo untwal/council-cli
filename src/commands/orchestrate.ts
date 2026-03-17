@@ -1,6 +1,6 @@
 import { findRepoRoot, createWorktree, getDiff, removeWorktree, Worktree } from "../worktree";
 import { getRunner, AgentResult, AgentRunnerOpts, LogCallback } from "../agents";
-import { discoverModels, ModelDef } from "../models";
+import { discoverModels, getDiscoveryWarnings, ModelDef } from "../models";
 import { generatePlan, reviewDiff } from "../orchestrator/planner";
 import { ImplementationPlan, SubTask, OrchestratorPhase, ReviewResult } from "../orchestrator/types";
 import { LiveDashboard } from "../ui/dashboard";
@@ -37,6 +37,7 @@ export async function runOrchestrate(descriptionArg: string | null): Promise<voi
   printInfo("Discovering available agents...");
 
   const available = await discoverModels();
+  for (const w of getDiscoveryWarnings()) printWarning(w);
   if (available.length === 0) {
     printError("No agents found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.");
     process.exit(1);
