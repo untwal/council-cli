@@ -148,9 +148,23 @@ function parseArgs(): ParsedArgs {
 
 function printHelp(): void {
   console.log(`
-  ${BOLD}${FG.brightCyan}${ICON.scales}  Council${RST} — Parallel AI Agent Orchestrator
+  ${BOLD}${FG.brightCyan}${ICON.scales}  Council${RST} — AI Company in a CLI
 
-  ${BOLD}USAGE${RST}
+  ${BOLD}QUICK START${RST}
+
+    ${DIM}# Run a feature through PM → Architect → Developer → QA → CEO${RST}
+    ${BOLD}council company${RST} "Add dark mode with system preference detection"
+
+    ${DIM}# Compare 2+ agents on the same task, pick the winner${RST}
+    ${BOLD}council${RST} "Fix the authentication bug"
+
+    ${DIM}# Fix a bug using the bugfix template${RST}
+    ${BOLD}council run bugfix${RST} "Login fails on Safari"
+
+    ${DIM}# Preview what the pipeline will do (no agents executed)${RST}
+    ${BOLD}council company --dry-run${RST} "Add user avatars"
+
+  ${BOLD}ALL COMMANDS${RST}
 
     ${BOLD}council${RST}                               Interactive chat (default)
     ${BOLD}council chat${RST}                           Same as above, explicitly

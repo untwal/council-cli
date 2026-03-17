@@ -120,10 +120,14 @@ export async function runInit(): Promise<void> {
   }
 
   console.log();
-  console.log(`  ${BOLD}Next steps:${RST}`);
-  console.log(`  ${DIM}1.${RST} council company "Your first feature"`);
-  console.log(`  ${DIM}2.${RST} council standup`);
-  console.log(`  ${DIM}3.${RST} council --help`);
+  console.log(`  ${BOLD}You're all set! Here's what to try:${RST}`);
+  console.log();
+  console.log(`  ${FG.brightCyan}First run:${RST}    council company "Add a simple health check endpoint"`);
+  console.log(`  ${FG.brightCyan}Quick fix:${RST}    council run bugfix "Describe the bug here"`);
+  console.log(`  ${FG.brightCyan}Compare:${RST}      council "Fix the auth bug"  ${DIM}(runs 2+ agents side-by-side)${RST}`);
+  console.log(`  ${FG.brightCyan}Dry run:${RST}      council company --dry-run "Feature"  ${DIM}(preview without executing)${RST}`);
+  console.log(`  ${FG.brightCyan}Health check:${RST} council doctor`);
+  console.log(`  ${FG.brightCyan}All commands:${RST} council --help`);
   console.log();
 }
 
