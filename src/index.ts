@@ -16,7 +16,35 @@ interface ParsedArgs {
 }
 
 function extractFlag(args: string[], prefix: string): string | null {
-  return args.find((a) => a.startsWith(`--${prefix}=`))?.split("=").slice(1).join("=") ?? null;
+  // Support both --flag=value and --flag value
+  const eqMatch = args.find((a) => a.startsWith(`--${prefix}=`));
+  if (eqMatch) return eqMatch.split("=").slice(1).join("=");
+
+  const idx = args.indexOf(`--${prefix}`);
+  if (idx >= 0 && idx + 1 < args.length && !args[idx + 1].startsWith("--")) {
+    return args[idx + 1];
+  }
+  return null;
+}
+
+/** Flags that take a value (--flag value). All others are boolean (--dry-run). */
+const VALUE_FLAGS = new Set(["agents", "roles", "resume", "port", "output", "since"]);
+
+/** Filter out all --flag and --flag=value args (and their space-separated values) to get the task text. */
+function extractTask(args: string[]): string {
+  const result: string[] = [];
+  let skip = false;
+  for (const arg of args) {
+    if (skip) { skip = false; continue; }
+    if (arg.startsWith("--")) {
+      if (arg.includes("=")) continue; // --flag=value: skip this arg only
+      const flagName = arg.slice(2);
+      if (VALUE_FLAGS.has(flagName)) skip = true; // --flag value: skip next arg too
+      continue;
+    }
+    result.push(arg);
+  }
+  return result.join(" ");
 }
 
 function parseArgs(): ParsedArgs {
@@ -68,8 +96,7 @@ function parseArgs(): ParsedArgs {
     const rest = args.slice(1);
     const agentFlag = extractFlag(rest, "agents");
     const rolesFlag = extractFlag(rest, "roles");
-    const taskParts = rest.filter((a) => !a.startsWith("--"));
-    return { command: "bg", task: taskParts.join(" ") || null, agentFlag, rolesFlag, target: null };
+    return { command: "bg", task: extractTask(rest) || null, agentFlag, rolesFlag, target: null };
   }
 
   if (subcommand === "init") {
@@ -83,22 +110,22 @@ function parseArgs(): ParsedArgs {
   if (subcommand === "export") {
     const rest = args.slice(1);
     const output = extractFlag(rest, "output");
-    const taskParts = rest.filter((a) => !a.startsWith("--"));
-    return { command: "export", task: taskParts[0] ?? "latest", agentFlag: null, rolesFlag: null, target: output };
+    const task = extractTask(rest);
+    return { command: "export", task: task || "latest", agentFlag: null, rolesFlag: null, target: output };
   }
 
   if (subcommand === "run") {
-    const rest = args.slice(1).filter((a) => !a.startsWith("--"));
-    const templateName = rest[0] ?? null;
-    const description = rest.slice(1).join(" ") || null;
+    const rest = args.slice(1);
+    const parts = extractTask(rest).split(/\s+/);
+    const templateName = parts[0] ?? null;
+    const description = parts.slice(1).join(" ") || null;
     return { command: "run", task: templateName, agentFlag: description, rolesFlag: null, target: null };
   }
 
   if (subcommand === "workspace" || subcommand === "ws") {
     const rest = args.slice(1);
     const agentFlag = extractFlag(rest, "agents");
-    const taskParts = rest.filter((a) => !a.startsWith("--"));
-    return { command: "workspace", task: taskParts.join(" ") || null, agentFlag, rolesFlag: null, target: null };
+    return { command: "workspace", task: extractTask(rest) || null, agentFlag, rolesFlag: null, target: null };
   }
 
   if (subcommand === "analytics" || subcommand === "stats") {
@@ -118,8 +145,7 @@ function parseArgs(): ParsedArgs {
     const rolesFlag = extractFlag(rest, "roles");
     const resumeFlag = extractFlag(rest, "resume");
     const dryRun = rest.includes("--dry-run");
-    const taskParts = rest.filter((a) => !a.startsWith("--"));
-    return { command: "company", task: taskParts.join(" ") || null, agentFlag, rolesFlag, target: resumeFlag, dryRun };
+    return { command: "company", task: extractTask(rest) || null, agentFlag, rolesFlag, target: resumeFlag, dryRun };
   }
 
   if (subcommand === "apply") {
@@ -129,14 +155,12 @@ function parseArgs(): ParsedArgs {
   if (subcommand === "compare") {
     const rest = args.slice(1);
     const agentFlag = extractFlag(rest, "agents");
-    const taskParts = rest.filter((a) => !a.startsWith("--"));
-    return { command: "compare", task: taskParts.join(" ") || null, agentFlag, rolesFlag: null, target: null };
+    return { command: "compare", task: extractTask(rest) || null, agentFlag, rolesFlag: null, target: null };
   }
 
   // Default: no subcommand
   const agentFlag = extractFlag(args, "agents");
-  const taskParts = args.filter((a) => !a.startsWith("--"));
-  const task = taskParts.join(" ") || null;
+  const task = extractTask(args) || null;
 
   if (task) {
     return { command: "compare", task, agentFlag, rolesFlag: null, target: null };
