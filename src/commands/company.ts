@@ -6,6 +6,7 @@ import {
   loadPipelineState, listPipelineRuns, Artifact,
 } from "../artifacts";
 import { runPipeline, PipelineResult } from "../pipeline";
+import { pickCompareAgents } from "../ui/prompt";
 import { parseAgentSpecs } from "../parse-agent-spec";
 import { loadConfig } from "../config";
 import { prompt, confirm } from "../ui/prompt";
@@ -179,12 +180,34 @@ export async function runCompany(
   console.log();
 
   if (dryRun) {
+    const userSpec = !!agentFlag;
+
     console.log(`  ${BOLD}Dry Run Preview:${RST}`);
+    console.log();
     const TIME_EST: Record<string, string> = { pm: "~2m", architect: "~3m", developer: "~5m", em: "~2m", qa: "~4m", ceo: "~1m" };
     for (const role of roles) {
       const time = TIME_EST[role.name] ?? "~3m";
-      const mode = role.mode === "compare" ? ` ${DIM}(${estimate.compareAgents} agents race)${RST}` : "";
-      console.log(`  ${DIM}${time}${RST}  ${role.title}${mode}  ${DIM}→ produces ${role.artifactType}${RST}`);
+
+      // Show which agent(s) will be used
+      let agentNames: string;
+      if (role.agentSpec && !userSpec) {
+        agentNames = role.agentSpec;
+      } else if (role.mode === "compare") {
+        const agents = pickCompareAgents(availableAgents, userSpec);
+        agentNames = agents.map((a: ModelDef) => a.model).join(", ");
+      } else if (userSpec) {
+        agentNames = availableAgents[0]?.model ?? "default";
+      } else if (role.name === "architect" || role.name === "ceo") {
+        const reasoning = availableAgents.find((a: ModelDef) => a.reasoning);
+        const opus = availableAgents.find((a: ModelDef) => /opus/i.test(a.model));
+        agentNames = (reasoning ?? opus ?? availableAgents[0])?.model ?? "default";
+      } else {
+        agentNames = availableAgents[0]?.model ?? "default";
+      }
+
+      const mode = role.mode === "compare" ? ` ${FG.brightYellow}compare${RST}` : "";
+      console.log(`  ${DIM}${time}${RST}  ${BOLD}${role.title}${RST}${mode}`);
+      console.log(`       ${DIM}agent: ${agentNames}  →  ${role.artifactType}${RST}`);
     }
     console.log();
     printHint("No agents will be executed. Remove --dry-run to start the pipeline.");

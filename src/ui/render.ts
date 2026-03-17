@@ -13,7 +13,7 @@ export function printHeader(): void {
   console.log(center(`${FG.brightCyan}${BOLD}${BOX.tl}${BOX.h.repeat(w - 4)}${BOX.tr}${RST}`, termWidth()));
   console.log(center(`${FG.brightCyan}${BOX.v}${RST}${" ".repeat(w - 4)}${FG.brightCyan}${BOX.v}${RST}`, termWidth()));
   console.log(center(`${FG.brightCyan}${BOX.v}${RST}   ${BOLD}${FG.brightWhite}${ICON.scales}  C O U N C I L${RST}${" ".repeat(w - 25)}${FG.brightCyan}${BOX.v}${RST}`, termWidth()));
-  console.log(center(`${FG.brightCyan}${BOX.v}${RST}   ${DIM}Parallel AI Agent Orchestrator${RST}${" ".repeat(w - 37)}${FG.brightCyan}${BOX.v}${RST}`, termWidth()));
+  console.log(center(`${FG.brightCyan}${BOX.v}${RST}   ${DIM}AI Company in a CLI${RST}${" ".repeat(w - 26)}${FG.brightCyan}${BOX.v}${RST}`, termWidth()));
   console.log(center(`${FG.brightCyan}${BOX.v}${RST}${" ".repeat(w - 4)}${FG.brightCyan}${BOX.v}${RST}`, termWidth()));
   console.log(center(`${FG.brightCyan}${BOLD}${BOX.bl}${BOX.h.repeat(w - 4)}${BOX.br}${RST}`, termWidth()));
   console.log();
