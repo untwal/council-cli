@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import { findRepoRoot } from "../worktree";
 import { printInfo, printError } from "../ui/render";
 import { RST, BOLD, DIM, FG, ICON } from "../ui/theme";
@@ -7,32 +7,37 @@ export async function runStandup(since: string | null): Promise<void> {
   const repoPath = findRepoRoot();
   const period = since ?? "yesterday";
 
+  // Validate period — reject shell metacharacters
+  if (/[;&|`$(){}!<>]/.test(period)) {
+    printError(`Invalid --since value: "${period}". Use a git date format like "yesterday", "2 days ago", "2026-03-01".`);
+    return;
+  }
+
   printInfo(`Generating standup for changes since ${period}...`);
   console.log();
 
-  const gitLog = safeExec(`git log --since="${period}" --oneline --no-merges`, repoPath);
-  const gitDiffStat = safeExec(`git diff --stat HEAD~5 2>/dev/null || git diff --stat`, repoPath);
-  const branch = safeExec("git branch --show-current", repoPath);
-  const uncommitted = safeExec("git status --short", repoPath);
-  const authors = safeExec(`git log --since="${period}" --format="%an" --no-merges | sort -u`, repoPath);
+  // All git commands use spawnSync with array args — no shell injection
+  const gitLog = git(repoPath, "log", `--since=${period}`, "--oneline", "--no-merges");
+  const gitDiffStat = git(repoPath, "diff", "--stat", "HEAD~5");
+  const branch = git(repoPath, "branch", "--show-current");
+  const uncommitted = git(repoPath, "status", "--short");
+  const authorsRaw = git(repoPath, "log", `--since=${period}`, "--format=%an", "--no-merges");
+  const authors = [...new Set(authorsRaw.split("\n").filter(Boolean))].sort().join("\n");
 
   if (!gitLog.trim() && !uncommitted.trim()) {
     console.log(`  ${DIM}No changes found since ${period}.${RST}`);
     return;
   }
 
-  // Header
   console.log(`  ${FG.brightCyan}${BOLD}${ICON.chart} Standup Report${RST}`);
   console.log(`  ${DIM}${"─".repeat(50)}${RST}`);
   console.log();
 
-  // Branch
   if (branch.trim()) {
     console.log(`  ${BOLD}Branch:${RST} ${FG.brightGreen}${branch.trim()}${RST}`);
     console.log();
   }
 
-  // Contributors
   if (authors.trim()) {
     const authorList = authors.trim().split("\n").filter(Boolean);
     if (authorList.length > 0) {
@@ -41,7 +46,6 @@ export async function runStandup(since: string | null): Promise<void> {
     }
   }
 
-  // Recent commits
   if (gitLog.trim()) {
     console.log(`  ${BOLD}${ICON.check} Completed${RST} ${DIM}(commits since ${period})${RST}`);
     for (const line of gitLog.trim().split("\n").slice(0, 15)) {
@@ -55,7 +59,6 @@ export async function runStandup(since: string | null): Promise<void> {
     console.log();
   }
 
-  // In progress (uncommitted changes)
   if (uncommitted.trim()) {
     const lines = uncommitted.trim().split("\n");
     const modified = lines.filter((l) => l.startsWith(" M") || l.startsWith("M "));
@@ -77,7 +80,6 @@ export async function runStandup(since: string | null): Promise<void> {
     console.log();
   }
 
-  // Diff stats
   if (gitDiffStat.trim()) {
     const lastLine = gitDiffStat.trim().split("\n").pop() ?? "";
     if (lastLine.includes("changed")) {
@@ -87,9 +89,10 @@ export async function runStandup(since: string | null): Promise<void> {
   }
 }
 
-function safeExec(cmd: string, cwd: string): string {
+function git(cwd: string, ...args: string[]): string {
   try {
-    return execSync(cmd, { cwd, encoding: "utf-8", timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+    const r = spawnSync("git", args, { cwd, encoding: "utf-8", timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+    return r.stdout ?? "";
   } catch {
     return "";
   }

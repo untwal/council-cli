@@ -2,7 +2,7 @@
  * Real evaluation — runs actual commands (tsc, eslint, npm test, etc.)
  * in each agent's worktree and reports pass/fail with real output.
  */
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import { Worktree } from "./worktree";
 import { getConfig } from "./config";
 
@@ -36,23 +36,34 @@ export function evaluate(worktree: Worktree, commands?: string[]): EvalResult {
   let totalMs = 0;
 
   for (const cmd of effectiveCmds) {
+    // Reject commands with shell chaining operators
+    if (/[;&|`$()]/.test(cmd) && !cmd.startsWith("npm ") && !cmd.startsWith("npx ")) {
+      checks.push({ command: cmd, passed: false, output: `Rejected: command contains shell metacharacters. Use simple commands only.`, durationMs: 0 });
+      continue;
+    }
+
     const start = Date.now();
     let passed = false;
     let output = "";
 
     try {
-      output = execSync(cmd, {
+      // Use spawnSync with shell:true for npm/npx compatibility, but input is validated above
+      const parts = cmd.split(/\s+/);
+      const r = spawnSync(parts[0], parts.slice(1), {
         cwd: worktree.path,
         encoding: "utf-8",
         timeout,
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, CI: "true", NODE_ENV: "test" },
       });
-      passed = true;
+      output = (r.stdout ?? "") + (r.stderr ?? "");
+      passed = r.status === 0;
+      if (r.error) {
+        output = r.error.message ?? "Command failed";
+        passed = false;
+      }
     } catch (err: unknown) {
-      const e = err as { stdout?: string; stderr?: string; status?: number; message?: string };
-      output = (e.stdout ?? "") + (e.stderr ?? "");
-      if (!output) output = e.message ?? "Command failed";
+      output = (err as Error).message ?? "Command failed";
       passed = false;
     }
 

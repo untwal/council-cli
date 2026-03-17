@@ -6,9 +6,20 @@ import { execSync, spawnSync } from "child_process";
 export interface ModelDef {
   id: string;
   label: string;
-  cli: string;   // "claude"|"codex"|"iloom" for CLI, "anthropic"|"openai"|"gemini" for API
+  cli: string;
   model: string;
-  reasoning?: boolean;  // enable extended thinking / reasoning mode
+  reasoning?: boolean;
+}
+
+// Discovery warnings — reported to user so failures are never silent
+const warnings: string[] = [];
+
+export function getDiscoveryWarnings(): string[] {
+  return [...warnings];
+}
+
+function warn(msg: string): void {
+  warnings.push(msg);
 }
 
 function cliAvailable(cmd: string): boolean {
@@ -27,8 +38,54 @@ function get(url: string, headers: Record<string, string>): Promise<string> {
       res.on("end", () => resolve(data));
     });
     req.on("error", reject);
-    req.setTimeout(15_000, () => req.destroy(new Error(`Model discovery timed out: ${url}`)));
+    req.setTimeout(15_000, () => req.destroy(new Error(`Model discovery timed out: ${u.hostname}`)));
   });
+}
+
+// ── CLI model listing (dynamic, no hardcoding) ──────────────────────────────
+
+function discoverClaudeCliModels(): ModelDef[] {
+  try {
+    const r = spawnSync("claude", ["--list-models"], { encoding: "utf-8", timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+    if (r.status === 0 && r.stdout) {
+      const models: ModelDef[] = [];
+      for (const line of r.stdout.trim().split("\n")) {
+        const model = line.trim();
+        if (!model || model.startsWith("-")) continue;
+        models.push({
+          id: model,
+          label: model,
+          cli: "claude",
+          model,
+        });
+        if (/opus/i.test(model)) {
+          models.push({ id: `${model}:reasoning`, label: `${model} (Reasoning)`, cli: "claude", model, reasoning: true });
+        }
+      }
+      if (models.length > 0) return models;
+    }
+  } catch { /* --list-models not supported, fall through */ }
+  return [];
+}
+
+function discoverCodexCliModels(): ModelDef[] {
+  try {
+    const cacheFile = os.homedir() + "/.codex/models_cache.json";
+    if (fs.existsSync(cacheFile)) {
+      const data = JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
+      const models = Array.isArray(data) ? data : data.models ?? data.data ?? [];
+      const listed = models.filter((m: { visibility?: string }) => m.visibility === "list");
+      if (listed.length > 0) {
+        return listed.map((m: { slug: string; display_name: string }) => ({
+          id: `codex:${m.slug}`,
+          label: m.display_name ?? m.slug,
+          cli: "codex",
+          model: m.slug,
+        }));
+      }
+    }
+  } catch { /* no cache file */ }
+  return [];
 }
 
 // ── Anthropic / Claude ───────────────────────────────────────────────────────
@@ -45,8 +102,13 @@ async function fetchAnthropicModels(): Promise<ModelDef[]> {
   const hasCli = cliAvailable("claude");
   const key = getAnthropicKey();
 
-  // Claude CLI has its own auth — it works even without ANTHROPIC_API_KEY.
-  // If we have a key, try the API for the real model list.
+  // Try CLI --list-models first (dynamic, no hardcoding)
+  if (hasCli) {
+    const cliModels = discoverClaudeCliModels();
+    if (cliModels.length > 0) return cliModels;
+  }
+
+  // Try API model list
   if (key) {
     try {
       const raw = await get("https://api.anthropic.com/v1/models", {
@@ -64,7 +126,6 @@ async function fetchAnthropicModels(): Promise<ModelDef[]> {
           cli: runner,
           model: m.id,
         }));
-        // Add reasoning variants for Opus models (extended thinking)
         for (const m of models) {
           if (/opus/i.test(m.id)) {
             result.push({
@@ -78,30 +139,23 @@ async function fetchAnthropicModels(): Promise<ModelDef[]> {
         }
         return result;
       }
-    } catch { /* fall through */ }
+    } catch (err) {
+      warn(`Anthropic API model listing failed: ${(err as Error).message ?? err}. Using CLI discovery.`);
+    }
   }
 
-  // CLI available without API key — return hardcoded models for CLI runner
-  if (hasCli && !key) {
-    return [
-      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", cli: "claude", model: "claude-sonnet-4-6" },
-      { id: "claude-opus-4-6", label: "Claude Opus 4.6", cli: "claude", model: "claude-opus-4-6" },
-      { id: "claude-opus-4-6:reasoning", label: "Claude Opus 4.6 (Reasoning)", cli: "claude", model: "claude-opus-4-6", reasoning: true },
-      { id: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet", cli: "claude", model: "claude-3-5-sonnet-20241022" },
-    ];
+  // CLI available but both --list-models and API failed
+  if (hasCli) {
+    warn("Could not discover Claude models dynamically. Claude CLI is available — specify models with --agents flag.");
+    // Return a minimal entry that lets the CLI handle model selection
+    return [{ id: "claude:default", label: "Claude (default)", cli: "claude", model: "sonnet" }];
   }
 
-  // No CLI, no key — nothing available
   if (!key) return [];
 
-  // Fallback: key exists but API failed
-  const runner = hasCli ? "claude" : "anthropic";
-  return [
-    { id: `${runner}:claude-sonnet-4-6`, label: "Claude Sonnet 4.6", cli: runner, model: "claude-sonnet-4-6" },
-    { id: `${runner}:claude-opus-4-6`, label: "Claude Opus 4.6", cli: runner, model: "claude-opus-4-6" },
-    { id: `${runner}:claude-opus-4-6:reasoning`, label: "Claude Opus 4.6 (Reasoning)", cli: runner, model: "claude-opus-4-6", reasoning: true },
-    { id: `${runner}:claude-3-5-sonnet-20241022`, label: "Claude 3.5 Sonnet", cli: runner, model: "claude-3-5-sonnet-20241022" },
-  ];
+  // Key exists, API failed, no CLI
+  warn("Anthropic API failed and Claude CLI is not installed. Specify models with --agents flag.");
+  return [];
 }
 
 // ── OpenAI / Codex ───────────────────────────────────────────────────────────
@@ -118,58 +172,45 @@ async function fetchOpenAIModels(): Promise<ModelDef[]> {
   const hasCli = cliAvailable("codex");
   const key = getOpenAIKey();
 
-  // Codex CLI has its own auth — it works even without OPENAI_API_KEY.
-  // Always check the CLI cache first if codex is installed.
+  // Try CLI cache first (dynamic)
   if (hasCli) {
-    try {
-      const data = JSON.parse(fs.readFileSync(os.homedir() + "/.codex/models_cache.json", "utf-8"));
-      const models = Array.isArray(data) ? data : data.models ?? data.data ?? [];
-      const listed = models.filter((m: { visibility?: string }) => m.visibility === "list");
-      if (listed.length > 0) {
-        return listed.map((m: { slug: string; display_name: string }) => ({
-          id: `codex:${m.slug}`,
-          label: m.display_name ?? m.slug,
-          cli: "codex",
-          model: m.slug,
-        }));
-      }
-    } catch { /* fall through */ }
+    const cliModels = discoverCodexCliModels();
+    if (cliModels.length > 0) return cliModels;
+  }
 
-    // Codex CLI exists but no cache — return hardcoded codex models
-    if (!key) {
-      return [
-        { id: "codex:o3-mini", label: "o3 Mini", cli: "codex", model: "o3-mini" },
-        { id: "codex:gpt-4o", label: "GPT-4o", cli: "codex", model: "gpt-4o" },
-      ];
+  if (!key && !hasCli) return [];
+
+  // Try API
+  if (key) {
+    try {
+      const raw = await get("https://api.openai.com/v1/models", { Authorization: `Bearer ${key}` });
+      const data = JSON.parse(raw);
+      if (data.error) throw new Error(data.error.message);
+      const runner = hasCli ? "codex" : "openai";
+      const filtered = (data.data ?? [])
+        .filter((m: { id: string }) => /^(gpt-[45]|o[1-4])/.test(m.id))
+        .map((m: { id: string }) => ({
+          id: `${runner}:${m.id}`,
+          label: m.id,
+          cli: runner,
+          model: m.id,
+        }));
+      if (filtered.length > 0) return filtered;
+    } catch (err) {
+      warn(`OpenAI API model listing failed: ${(err as Error).message ?? err}. Using CLI discovery.`);
     }
   }
 
-  // No codex CLI — need OPENAI_API_KEY for API-based runner
-  if (!key) return [];
+  // CLI available but no models discovered
+  if (hasCli) {
+    warn("Could not discover Codex models dynamically. Codex CLI is available — specify models with --agents flag.");
+    return [{ id: "codex:default", label: "Codex (default)", cli: "codex", model: "o3-mini" }];
+  }
 
-  // Query OpenAI API
-  try {
-    const raw = await get("https://api.openai.com/v1/models", { Authorization: `Bearer ${key}` });
-    const data = JSON.parse(raw);
-    if (data.error) throw new Error(data.error.message);
-    const runner = hasCli ? "codex" : "openai";
-    const filtered = (data.data ?? [])
-      .filter((m: { id: string }) => /^(gpt-[45]|o[1-4])/.test(m.id))
-      .map((m: { id: string }) => ({
-        id: `${runner}:${m.id}`,
-        label: m.id,
-        cli: runner,
-        model: m.id,
-      }));
-    if (filtered.length > 0) return filtered;
-  } catch { /* fall through */ }
-
-  // Fallback: hardcoded
-  const runner = hasCli ? "codex" : "openai";
-  return [
-    { id: `${runner}:gpt-4o`, label: "GPT-4o", cli: runner, model: "gpt-4o" },
-    { id: `${runner}:gpt-4-turbo`, label: "GPT-4 Turbo", cli: runner, model: "gpt-4-turbo" },
-  ];
+  if (key) {
+    warn("OpenAI API failed and Codex CLI is not installed. Specify models with --agents flag.");
+  }
+  return [];
 }
 
 // ── Google Gemini ────────────────────────────────────────────────────────────
@@ -181,15 +222,12 @@ function getGoogleKey(): string {
 async function fetchGeminiModels(): Promise<ModelDef[]> {
   const hasCli = cliAvailable("gemini");
   const key = getGoogleKey();
-
-  // Gemini CLI has its own auth — works without GOOGLE_API_KEY.
-  // Use "gemini-cli" runner for CLI, "gemini" for API.
   const runner = hasCli ? "gemini-cli" : "gemini";
 
-  // If we have a key, try fetching the real model list from API
+  // Try API
   if (key) {
     try {
-      const raw = await get(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, {});
+      const raw = await get("https://generativelanguage.googleapis.com/v1beta/models", { "x-goog-api-key": key });
       const data = JSON.parse(raw);
       if (data.error) throw new Error(data.error.message);
       const models = (data.models ?? []) as Array<{ name: string; displayName: string; supportedGenerationMethods?: string[] }>;
@@ -200,35 +238,26 @@ async function fetchGeminiModels(): Promise<ModelDef[]> {
         .slice(0, 8)
         .map((m) => {
           const id = m.name.replace("models/", "");
-          return {
-            id: `${runner}:${id}`,
-            label: m.displayName ?? id,
-            cli: runner,
-            model: id,
-          };
+          return { id: `${runner}:${id}`, label: m.displayName ?? id, cli: runner, model: id };
         });
       if (filtered.length > 0) return filtered;
-    } catch { /* fall through */ }
+    } catch (err) {
+      warn(`Gemini API model listing failed: ${(err as Error).message ?? err}. Using CLI discovery.`);
+    }
   }
 
-  // CLI available without API key — return hardcoded models for CLI runner
-  if (hasCli && !key) {
-    return [
-      { id: "gemini-cli:gemini-2.5-flash", label: "Gemini 2.5 Flash", cli: "gemini-cli", model: "gemini-2.5-flash" },
-      { id: "gemini-cli:gemini-2.5-pro", label: "Gemini 2.5 Pro", cli: "gemini-cli", model: "gemini-2.5-pro" },
-      { id: "gemini-cli:default", label: "Gemini (default)", cli: "gemini-cli", model: "default" },
-    ];
+  // CLI available but API failed or no key
+  if (hasCli) {
+    if (!key) {
+      warn("Gemini CLI found but no GOOGLE_API_KEY — using default model. Set GOOGLE_API_KEY for full model list.");
+    }
+    return [{ id: "gemini-cli:default", label: "Gemini (default)", cli: "gemini-cli", model: "default" }];
   }
 
-  // No CLI, no key — nothing
   if (!key) return [];
 
-  // Fallback: key exists but API failed
-  return [
-    { id: `${runner}:gemini-2.0-flash`, label: "Gemini 2.0 Flash", cli: runner, model: "gemini-2.0-flash" },
-    { id: `${runner}:gemini-1.5-pro-latest`, label: "Gemini 1.5 Pro", cli: runner, model: "gemini-1.5-pro-latest" },
-    { id: `${runner}:gemini-1.5-flash-latest`, label: "Gemini 1.5 Flash", cli: runner, model: "gemini-1.5-flash-latest" },
-  ];
+  warn("Gemini API failed and Gemini CLI is not installed. Specify models with --agents flag.");
+  return [];
 }
 
 // ── iloom ─────────────────────────────────────────────────────────────────────
@@ -243,11 +272,13 @@ function fetchIloomModels(): ModelDef[] {
 const CLI_RUNNERS = new Set(["claude", "codex", "gemini-cli", "iloom"]);
 const API_RUNNERS = new Set(["anthropic", "openai", "gemini"]);
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 60 * 60 * 1000;
 let modelCache: { models: ModelDef[]; timestamp: number } | null = null;
 
 export async function discoverModels(): Promise<ModelDef[]> {
-  // Return cached models if fresh
+  // Clear warnings for fresh discovery
+  warnings.length = 0;
+
   if (modelCache && Date.now() - modelCache.timestamp < CACHE_TTL_MS) {
     return modelCache.models;
   }
@@ -270,19 +301,13 @@ export async function discoverModels(): Promise<ModelDef[]> {
   return all;
 }
 
-/** Clear model cache (for testing or forced refresh). */
 export function clearModelCache(): void {
   modelCache = null;
 }
 
-/**
- * Discover only API-based models (for chat mode, which needs multi-turn).
- * CLI runners are converted to their API equivalents.
- */
 export async function discoverApiModels(): Promise<ModelDef[]> {
   const all = await discoverModels();
   return all.map((m) => {
-    // Convert CLI runners to API runners for chat mode
     const suffix = m.reasoning ? ":reasoning" : "";
     if (m.cli === "claude") return { ...m, id: `anthropic:${m.model}${suffix}`, cli: "anthropic" };
     if (m.cli === "codex") return { ...m, id: `openai:${m.model}`, cli: "openai" };
